@@ -1,0 +1,49 @@
+version: '3.8'
+
+services:
+  sfedunet-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: sfedunet-telegram-bot
+    restart: unless-stopped
+    environment:
+      - BOT_TOKEN=${BOT_TOKEN}
+      - BOT_STATE_PATH=/app/data/state.json
+    volumes:
+      # Persistent data storage
+      - ./data:/app/data:rw
+      # Logs (optional)
+      - ./logs:/app/logs:rw
+    networks:
+      - bot-network
+    labels:
+      - "com.docker.compose.project=sfedunet-bot"
+      - "description=Sfedunet 12 Telegram Bot"
+
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.5'
+        reservations:
+          memory: 128M
+          cpus: '0.1'
+
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  bot-network:
+    driver: bridge
+    name: sfedunet-bot-network
+
+# Optional: Add volume for persistent data
+volumes:
+  bot-data:
+    driver: local
