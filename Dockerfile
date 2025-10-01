@@ -21,8 +21,16 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
 COPY *.py .
+
+# Create directories with proper permissions
+RUN mkdir -p /app/data /app/logs && \
+    chown -R appuser:appuser /app/data /app/logs
+
+# Copy data directory
 COPY data/ ./data/
-COPY logs/ ./logs/
+
+# Skip logs copying for now - logs will be mounted as volume
+# COPY logs/ ./logs/
 
 # Create startup script
 RUN echo '#!/bin/bash\n\
