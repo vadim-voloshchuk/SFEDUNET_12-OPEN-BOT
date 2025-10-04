@@ -149,6 +149,10 @@ GIVEAWAY_TEMPLATE = """
             opacity: 0.7;
             font-size: 0.9em;
         }
+        .loading {
+            opacity: 0.5;
+            pointer-events: none;
+        }
         .countdown {
             font-size: 1.5em;
             margin: 20px 0;
@@ -179,7 +183,9 @@ GIVEAWAY_TEMPLATE = """
         </div>
 
         <div class="auto-refresh">
-            🔄 Обновление каждые 3 секунды | Последнее обновление: <span id="last-update">загрузка...</span>
+            🔄 Обновление каждые 2 секунды | Последнее обновление: <span id="last-update">загрузка...</span>
+            <br>
+            <button class="btn" onclick="loadData()" style="font-size: 0.9em; padding: 10px 20px; margin-top: 10px;">🔃 Обновить сейчас</button>
         </div>
 
         <div class="winner-section">
@@ -198,25 +204,48 @@ GIVEAWAY_TEMPLATE = """
         let participants = [];
 
         async function loadData() {
+            const container = document.querySelector('.container');
+
             try {
+                console.log('Loading giveaway data...');
+                container.classList.add('loading');
+
                 const response = await fetch('/api/giveaway/stats');
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
                 const data = await response.json();
 
-                document.getElementById('total-participants').textContent = data.total_participants;
-                document.getElementById('qualified-participants').textContent = data.qualified_participants;
-                document.getElementById('completion-rate').textContent = Math.round(data.completion_rate) + '%';
+                document.getElementById('total-participants').textContent = data.total_participants || 0;
+                document.getElementById('qualified-participants').textContent = data.qualified_participants || 0;
+                document.getElementById('completion-rate').textContent = Math.round(data.completion_rate || 0) + '%';
 
-                participants = data.participants;
+                participants = data.participants || [];
                 renderParticipants();
 
                 document.getElementById('last-update').textContent = new Date().toLocaleTimeString();
 
                 // Включаем/выключаем кнопку розыгрыша
                 const drawBtn = document.getElementById('draw-btn');
-                drawBtn.disabled = data.qualified_participants === 0;
+                drawBtn.disabled = (data.qualified_participants || 0) === 0;
+
+                console.log(`Loaded ${participants.length} qualified participants`);
+
+                // Убираем индикацию загрузки
+                container.classList.remove('loading');
 
             } catch (error) {
                 console.error('Error loading data:', error);
+                document.getElementById('last-update').textContent = 'Ошибка загрузки: ' + error.message;
+
+                // Показываем ошибку пользователю
+                const participantsList = document.getElementById('participants-list');
+                participantsList.innerHTML = `<p style="color: #FFB6C1;">❌ Ошибка загрузки данных: ${error.message}</p>`;
+
+                // Убираем индикацию загрузки даже при ошибке
+                container.classList.remove('loading');
             }
         }
 
@@ -286,8 +315,8 @@ GIVEAWAY_TEMPLATE = """
             }, 100);
         }
 
-        // Автообновление каждые 3 секунды
-        setInterval(loadData, 3000);
+        // Автообновление каждые 2 секунды для более быстрого отклика
+        setInterval(loadData, 2000);
 
         // Первоначальная загрузка
         loadData();
@@ -304,45 +333,53 @@ def giveaway_page():
 @app.route('/api/giveaway/stats', methods=['GET'])
 def get_giveaway_stats():
     """Получить статистику для розыгрыша."""
-    users = state_manager.get_all_users()
-
-    # Импортируем актуальную конфигурацию стендов
     try:
-        from config import load_stands
-        stands = load_stands()
-        total_stands = len(stands)
-    except:
-        total_stands = 5
+        users = state_manager.get_all_users()
 
-    total_participants = len(users)
-    qualified_participants = []
+        # Импортируем актуальную конфигурацию стендов
+        try:
+            from config import load_stands
+            stands = load_stands()
+            total_stands = len(stands)
+        except Exception as e:
+            print(f"[Giveaway] Warning: Could not load stands config: {e}")
+            total_stands = 5
 
-    for user_id, user_data in users.items():
-        if not user_data.get('full_name'):
-            continue
+        total_participants = len(users)
+        qualified_participants = []
 
-        completed = sum(1 for status in user_data.get('stand_status', {}).values() if status.get('done', False))
-        total_user_stands = len(user_data.get('stand_status', {}))
+        for user_id, user_data in users.items():
+            if not user_data.get('full_name'):
+                continue
 
-        # Квалифицированные участники - те кто прошел все стенды И добавил ВК
-        if completed >= total_stands and user_data.get('vk_verified', False):
-            qualified_participants.append({
-                'user_id': user_id,
-                'full_name': user_data.get('full_name'),
-                'vk_profile': user_data.get('vk_profile'),
-                'completed_stands': completed,
-                'total_stands': total_user_stands
-            })
+            completed = sum(1 for status in user_data.get('stand_status', {}).values() if status.get('done', False))
+            total_user_stands = len(user_data.get('stand_status', {}))
 
-    completion_rate = (len(qualified_participants) / total_participants * 100) if total_participants > 0 else 0
+            # Квалифицированные участники - те кто прошел все стенды И добавил ВК
+            if completed >= total_stands and user_data.get('vk_verified', False):
+                qualified_participants.append({
+                    'user_id': user_id,
+                    'full_name': user_data.get('full_name'),
+                    'vk_profile': user_data.get('vk_profile'),
+                    'completed_stands': completed,
+                    'total_stands': total_user_stands
+                })
 
-    return jsonify({
-        'total_participants': total_participants,
-        'qualified_participants': len(qualified_participants),
-        'completion_rate': completion_rate,
-        'participants': qualified_participants,
-        'timestamp': datetime.now().isoformat()
-    })
+        completion_rate = (len(qualified_participants) / total_participants * 100) if total_participants > 0 else 0
+
+        print(f"[Giveaway] Stats: {total_participants} total, {len(qualified_participants)} qualified")
+
+        return jsonify({
+            'total_participants': total_participants,
+            'qualified_participants': len(qualified_participants),
+            'completion_rate': completion_rate,
+            'participants': qualified_participants,
+            'timestamp': datetime.now().isoformat()
+        })
+
+    except Exception as e:
+        print(f"[Giveaway] Error getting stats: {e}")
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/health')
 def health_check():
