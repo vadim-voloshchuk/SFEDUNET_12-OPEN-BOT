@@ -42,6 +42,8 @@ class RealtimeStateManager:
         self.subscribers: list[Callable] = []
         self.lock = threading.RLock()
         self._observer = None
+        self._periodic_timer = None
+        self._last_file_mtime = 0
 
         # Создаем директорию если не существует
         self.state_file_path.parent.mkdir(parents=True, exist_ok=True)
@@ -52,11 +54,17 @@ class RealtimeStateManager:
         # Запускаем мониторинг файла
         self._start_file_monitoring()
 
+        # Запускаем периодическую проверку
+        self._start_periodic_check()
+
     def _load(self):
         """Загружает данные из файла."""
         with self.lock:
             if self.state_file_path.exists():
                 try:
+                    # Обновляем время модификации файла
+                    self._last_file_mtime = self.state_file_path.stat().st_mtime
+
                     with open(self.state_file_path, 'r', encoding='utf-8') as f:
                         self.data = json.load(f)
                     print(f"[RealtimeState] Loaded state from {self.state_file_path}")
@@ -106,6 +114,30 @@ class RealtimeStateManager:
             print(f"[RealtimeState] Started file monitoring for {self.state_file_path.parent}")
         except Exception as e:
             print(f"[RealtimeState] Failed to start file monitoring: {e}")
+
+    def _start_periodic_check(self):
+        """Запускает периодическую проверку изменений файла."""
+        def check_file_changes():
+            try:
+                if self.state_file_path.exists():
+                    current_mtime = self.state_file_path.stat().st_mtime
+                    if current_mtime > self._last_file_mtime:
+                        print("[RealtimeState] Periodic check detected file change")
+                        self._on_file_changed()
+            except Exception as e:
+                print(f"[RealtimeState] Error in periodic check: {e}")
+
+            # Планируем следующую проверку
+            if hasattr(self, '_periodic_timer'):
+                self._periodic_timer = threading.Timer(2.0, check_file_changes)
+                self._periodic_timer.daemon = True
+                self._periodic_timer.start()
+
+        # Запускаем первую проверку
+        self._periodic_timer = threading.Timer(2.0, check_file_changes)
+        self._periodic_timer.daemon = True
+        self._periodic_timer.start()
+        print("[RealtimeState] Started periodic file check every 2 seconds")
 
     def _on_file_changed(self):
         """Обрабатывает изменение файла."""
@@ -319,6 +351,10 @@ class RealtimeStateManager:
             self._observer.stop()
             self._observer.join()
             print("[RealtimeState] Stopped file monitoring")
+
+        if self._periodic_timer:
+            self._periodic_timer.cancel()
+            print("[RealtimeState] Stopped periodic check")
 
 # Глобальный экземпляр
 _state_manager = None
