@@ -60,6 +60,7 @@ SIMPLE_TEMPLATE = """
         <div class="auto-refresh">
             <button class="btn" onclick="toggleAutoRefresh()">🔄 Auto Refresh: <span id="refresh-status">ON</span></button>
             <button class="btn" onclick="refreshNow()">↻ Refresh Now</button>
+            <button class="btn" onclick="forceRefresh()">🔃 Force Refresh</button>
             <button class="btn btn-danger" onclick="clearAll()">🗑️ Clear All Data</button>
             <span id="last-update">Загрузка...</span>
         </div>
@@ -146,7 +147,7 @@ SIMPLE_TEMPLATE = """
         }
 
         function startAutoRefresh() {
-            autoRefreshInterval = setInterval(refreshNow, 2000); // Обновление каждые 2 секунды
+            autoRefreshInterval = setInterval(refreshNow, 1000); // Обновление каждую секунду для более быстрого отклика
         }
 
         async function refreshNow() {
@@ -158,64 +159,101 @@ SIMPLE_TEMPLATE = """
             }
         }
 
-        async function loadStats() {
-            const response = await fetch('/api/realtime/stats');
-            const stats = await response.json();
+        async function forceRefresh() {
+            try {
+                console.log('Force refreshing state...');
+                const response = await fetch('/api/realtime/refresh', { method: 'POST' });
+                const result = await response.json();
 
-            document.getElementById('stats-container').innerHTML = `
-                <div class="stat">
-                    <div class="stat-number">${stats.total_users}</div>
-                    <div class="stat-label">Всего пользователей</div>
-                </div>
-                <div class="stat">
-                    <div class="stat-number">${stats.average_progress}%</div>
-                    <div class="stat-label">Средний прогресс</div>
-                </div>
-                <div class="stat">
-                    <div class="stat-number">${stats.completed_users}</div>
-                    <div class="stat-label">Завершили все стенды</div>
-                </div>
-                <div class="stat">
-                    <div class="stat-number">${stats.qualified_users}</div>
-                    <div class="stat-label">Квалифицированы</div>
-                </div>
-                <div class="stat">
-                    <div class="stat-number">${stats.vk_verified_users}</div>
-                    <div class="stat-label">VK верифицированы</div>
-                </div>
-                <div class="stat">
-                    <div class="stat-number">${stats.users_with_pending_questions}</div>
-                    <div class="stat-label">С активными вопросами</div>
-                </div>
-            `;
+                if (result.success) {
+                    console.log('Force refresh successful:', result.message);
+                    await refreshNow();
+                } else {
+                    console.error('Force refresh failed:', result.error);
+                    alert('Ошибка принудительного обновления: ' + result.error);
+                }
+            } catch (error) {
+                console.error('Force refresh error:', error);
+                alert('Ошибка: ' + error.message);
+            }
+        }
+
+        async function loadStats() {
+            try {
+                const response = await fetch('/api/realtime/stats');
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                const stats = await response.json();
+
+                document.getElementById('stats-container').innerHTML = `
+                    <div class="stat">
+                        <div class="stat-number">${stats.total_users || 0}</div>
+                        <div class="stat-label">Всего пользователей</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-number">${stats.average_progress || 0}%</div>
+                        <div class="stat-label">Средний прогресс</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-number">${stats.completed_users || 0}</div>
+                        <div class="stat-label">Завершили все стенды</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-number">${stats.qualified_users || 0}</div>
+                        <div class="stat-label">Квалифицированы</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-number">${stats.vk_verified_users || 0}</div>
+                        <div class="stat-label">VK верифицированы</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-number">${stats.users_with_pending_questions || 0}</div>
+                        <div class="stat-label">С активными вопросами</div>
+                    </div>
+                `;
+                console.log('Stats loaded successfully:', stats);
+            } catch (error) {
+                console.error('Error loading stats:', error);
+                document.getElementById('stats-container').innerHTML = `<p style="color: red;">Ошибка загрузки статистики: ${error.message}</p>`;
+            }
         }
 
         async function loadUsers() {
-            const response = await fetch('/api/realtime/users');
-            const users = await response.json();
+            try {
+                const response = await fetch('/api/realtime/users');
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                const users = await response.json();
 
-            const usersHtml = users.map(user => {
-                const progressPercent = user.progress_percent || 0;
-                let badges = '';
+                const usersHtml = users.map(user => {
+                    const progressPercent = user.progress_percent || 0;
+                    let badges = '';
 
-                if (user.qualified) badges += '<span class="status-badge badge-qualified">🏆 Квалифицирован</span>';
-                else if (user.vk_verified) badges += '<span class="status-badge badge-verified">✅ VK подтвержден</span>';
+                    if (user.qualified) badges += '<span class="status-badge badge-qualified">🏆 Квалифицирован</span>';
+                    else if (user.vk_verified) badges += '<span class="status-badge badge-verified">✅ VK подтвержден</span>';
 
-                if (user.has_pending_question) badges += '<span class="status-badge badge-pending">❓ Активный вопрос</span>';
+                    if (user.has_pending_question) badges += '<span class="status-badge badge-pending">❓ Активный вопрос</span>';
 
-                return `
-                    <div class="user">
-                        <div><strong>${user.full_name || 'Без имени'}</strong> (ID: ${user.user_id}) ${badges}</div>
-                        <div>Прогресс: ${user.completed_stands}/${user.total_stands} стендов</div>
-                        <div class="progress-bar">
-                            <div class="progress-fill" style="width: ${progressPercent}%"></div>
+                    return `
+                        <div class="user">
+                            <div><strong>${user.full_name || 'Без имени'}</strong> (ID: ${user.user_id}) ${badges}</div>
+                            <div>Прогресс: ${user.completed_stands}/${user.total_stands} стендов</div>
+                            <div class="progress-bar">
+                                <div class="progress-fill" style="width: ${progressPercent}%"></div>
+                            </div>
+                            <small>Обновлен: ${new Date(user.updated_at).toLocaleString()}</small>
                         </div>
-                        <small>Обновлен: ${new Date(user.updated_at).toLocaleString()}</small>
-                    </div>
-                `;
-            }).join('');
+                    `;
+                }).join('');
 
-            document.getElementById('users-container').innerHTML = usersHtml || '<p>Нет пользователей</p>';
+                document.getElementById('users-container').innerHTML = usersHtml || '<p>Нет пользователей</p>';
+                console.log(`Loaded ${users.length} users successfully`);
+            } catch (error) {
+                console.error('Error loading users:', error);
+                document.getElementById('users-container').innerHTML = `<p style="color: red;">Ошибка загрузки пользователей: ${error.message}</p>`;
+            }
         }
 
         async function loadStands() {
@@ -569,6 +607,15 @@ def clear_realtime_state():
     try:
         state_manager.clear_all()
         return jsonify({'success': True, 'message': 'Все данные пользователей удалены'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/realtime/refresh', methods=['POST'])
+def force_refresh_state():
+    """Принудительно обновить состояние из файла."""
+    try:
+        state_manager._load()
+        return jsonify({'success': True, 'message': 'Состояние обновлено из файла'})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 

@@ -78,7 +78,12 @@ class RealtimeStateManager:
 
             # Атомарно заменяем файл
             temp_path.replace(self.state_file_path)
-            print(f"[RealtimeState] Saved state to {self.state_file_path}")
+
+            # Добавляем небольшую задержку чтобы файловая система успела обработать событие
+            import time
+            time.sleep(0.1)
+
+            print(f"[RealtimeState] Saved state to {self.state_file_path} (users: {len([k for k in self.data.keys() if k != 'meta'])})")
 
         except Exception as e:
             print(f"[RealtimeState] Error saving state: {e}")
@@ -245,6 +250,8 @@ class RealtimeStateManager:
                 self._save()
                 self._notify_subscribers()
                 print(f"[RealtimeState] Updated user {user_id}: {list(updates.keys())}")
+            else:
+                print(f"[RealtimeState] Warning: Tried to update non-existent user {user_id}")
 
     def get_all_users(self) -> Dict[str, Any]:
         """Получает всех пользователей."""
